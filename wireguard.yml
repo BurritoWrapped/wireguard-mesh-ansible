@@ -9,17 +9,9 @@
         cache_valid_time: 3600
       become: yes
 
-    - name: Allow SSH in UFW
-      ufw:
-        rule: allow
-        port: "{{ ansible_ssh_port }}"
-        proto: tcp
-      become: yes
-      when: ufw_enabled
-
     - name: Set ufw logging
       ufw:
-        logging: "on"
+        logging: "off"
       become: yes
       when: ufw_enabled
 
@@ -27,7 +19,7 @@
       ufw:
         rule: allow
         src: "{{ hostvars[item].wireguard_ip }}"
-      with_items: "{{ groups['all'] }}"
+      with_items: "{{ groups['sflow-mesh'] }}"
       become: yes
       when: ufw_enabled and item != inventory_hostname
 
@@ -46,13 +38,13 @@
       become: yes
 
     - name: Generate Wireguard keypair
-      shell: wg genkey | tee /etc/wireguard/privatekey | wg pubkey | tee /etc/wireguard/publickey
+      shell: wg genkey | tee /etc/wireguard/privatekey | wg pubkey | tee /etc/wireguard/wg1-publickey
       args:
-        creates: /etc/wireguard/privatekey
+        creates: /etc/wireguard/wg1-privatekey
       become: yes
 
     - name: register private key
-      shell: cat /etc/wireguard/privatekey
+      shell: cat /etc/wireguard/wg1-privatekey
       register: wireguard_private_key
       changed_when: false
       become: yes
@@ -68,7 +60,7 @@
       args:
         creates: "/etc/wireguard/psk-{{ item }}"
       when: inventory_hostname < item
-      with_items: "{{ groups['all'] }}"
+      with_items: "{{ groups['sflow-mesh'] }}"
       become: yes
 
     - name: register preshared key
@@ -76,16 +68,10 @@
       register: wireguard_preshared_key
       changed_when: false
       when: inventory_hostname < item
-      with_items: "{{ groups['all'] }}"
+      with_items: "{{ groups['sflow-mesh'] }}"
       become: yes
 
-    - name: massage preshared keys
-      set_fact: "wireguard_preshared_keys={{ wireguard_preshared_keys|default({}) | combine( {item.item: item.stdout} ) }}"
-      when: item.skipped is not defined
-      with_items: "{{ wireguard_preshared_key.results }}"
-      become: yes
-
-    - name: Setup wg0 device
+    - name: Setup wg1 device
       template:
         src: ./templates/systemd.netdev
         dest: /etc/systemd/network/99-wg0.netdev
@@ -95,10 +81,10 @@
       become: yes
       notify: systemd network restart
 
-    - name: Setup wg0 network
+    - name: Setup wg1 network
       template:
         src: ./templates/systemd.network
-        dest: /etc/systemd/network/99-wg0.network
+        dest: /etc/systemd/network/99-wg1.network
         owner: root
         group: systemd-network
         mode: 0640
